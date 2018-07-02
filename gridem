@@ -1,0 +1,197 @@
+#!/bin/bash
+
+# Optionally open multiple gnome terminals, ssh to each.
+# Then size and position the the gnome terminals in a grid
+# (defaults 2x2).  Supports multiple monitors.
+#
+# possible enhancements:
+# * support multiple desktops
+#
+# Roy
+
+#set -x
+
+usage="$(basename "$0") [-h|--help] [-c|--columns N] [-r|--rows N] [-a|--all] [--{PROFILE}={HOST}...] [HOST...]
+
+where:
+    -h|--help           show this help text
+    -c|--columns N      arrange terminals in the given number of columns per monitor.
+    -r|--rows N         arrange terminals in the given number of rows per monitor.
+    -a|--all            arrange all the terminals into the grid.
+    --{PROFILE}={HOST}  open a new gnome-terminal using the PROFILE, ssh to HOST.
+                        Multiple occurrences allowed.
+    HOST                open a new gnome-terminal using default profile, ssh to HOST.
+                        Multiple occurrences allowed.
+"
+
+# initialize
+
+rcfile=$HOME/.gridemrc
+
+if [ -e ${rcfile} ]
+then
+    source ${rcfile}
+fi
+
+# variables that may be defined in the rc file:
+user="${user:-$USER}"
+domain="${domain:-}"
+ssh_options="${ssh_options:- -C -o TCPKeepAlive=yes -o ServerAliveInterval=30}"
+titles="${titles:-()}"
+
+columns=${columns:-2}
+rows=${rows:-2}
+desktops=${desktops:-1}
+
+border_top=20
+border_bottom=20
+border_left=0
+border_right=0
+
+# environmental variables
+
+monitors=$(xrandr -d :0 -q | grep ' connected' | wc -l)
+monitor_width=$(xrandr --current | grep '*' | uniq | awk '{print $1}' | cut -d 'x' -f1)
+monitor_height=$(xrandr --current | grep '*' | uniq | awk '{print $1}' | cut -d 'x' -f2)
+display_dimensions=$(xdpyinfo | grep dimensions | sed -r 's/^[^0-9]*([0-9]+x[0-9]+).*$/\1/')
+display_width=$(echo ${display_dimensions} | sed -r 's/x.*//')
+display_height=$(echo ${display_dimensions} | sed -r 's/.*x//')
+
+number_of_desktops=$(xdotool get_num_desktops)
+current_desktop=$(xdotool get_desktop)
+all=false
+verbose=false
+
+# parse command line
+
+declare -A hosts
+while [[ $# -gt 0 ]]
+do
+key="$1"
+case ${key} in
+    -h|--help)
+    echo "${usage}"
+    exit 0;
+    shift # past argument
+    ;;
+    -c|--columns)
+    columns="$2"
+    shift # past argument
+    shift # past value
+    ;;
+    -r|--rows)
+    rows="$2"
+    shift # past argument
+    shift # past value
+    ;;
+    -a|--all)
+    all=true;
+    shift # past argument
+    ;;
+    -t|--title)
+    titles+=("$2")
+    shift # past argument
+    shift # past value
+    ;;
+    -v|--verbose)
+    verbose=true;
+    shift # past argument
+    ;;
+    --*=*)
+    profile=$( expr match "$1" '--\(.*\)=\(.*\)' )
+    host=$( expr match "$1" '--.*=\(.*\)' )
+    hosts+=( ["$host"]="$profile" )
+    shift # past argument
+    ;;
+    *)    # unknown options
+    hosts+=( ["$1"]="" )
+    shift # past argument
+    ;;
+esac
+done
+set -- "${!hosts[@]}"  # restore positional parameters
+
+# calculated constants
+
+width="$(( ( $display_width - ( $border_left + $border_right ) ) / ( $columns * $monitors ) ))"
+height="$(( ( $display_height - ( $rows * ( $border_top + $border_bottom ) ) ) / $rows ))"
+xoffset=0;
+yoffset=20;  # approximately the title bar height
+column=0;
+
+# the hosts dictionary's keys are host names to ssh to in new windows and
+# the values are either empty string or a profile name
+#
+# iterate hosts keys and open new windows with ssh connection to the host
+# use the terminal profile if it is not empty
+
+IFS=$'\n' sorted=($(sort <<<"${!hosts[*]}"));
+unset IFS
+for host in "${sorted[@]}"
+do
+    profile=${hosts[$host]}
+    if [[ -z ${profile// } ]]
+    then
+        profile_parameter="--window"
+    else
+        profile_parameter="--window-with-profile=${profile}"
+    fi
+    if [ "$verbose" = true ]
+    then
+        echo "gnome-terminal ${profile_parameter} -- ssh ${ssh_options} ${user}@${host}.${domain} "
+    fi
+    $(gnome-terminal ${profile_parameter} -- ssh ${ssh_options} ${user}@${host}.${domain} )
+done
+
+# now we need to resize and reposition all of the gnome-terminal windows
+#
+# The display consists of desktops, monitors, and windows.  We place the windows in a grid
+# across the monitors.  The grid on a monitory is rows by columns.  The windows are sized to
+# fit within the grid.  Also all of the windows are raised to be visible.
+#
+# TDB handle desktops
+
+r=0
+c=0
+m=0
+
+((xincr=$width+$xoffset));
+((yincr=$height+$yoffset));
+
+function nameInTitles {
+  local n="$1"
+
+  for title in "${titles[@]}"; do
+      if [[ "${n}" =~ "$title" ]]; then
+          return 0  # true
+      fi
+  done
+  return 1  # false
+}
+
+declare -a pids=$(xdotool search --onlyvisible -class gnome-terminal);
+IFS=$'\n' sorted=($(sort <<<"${pids[*]}"));
+unset IFS
+for pid in "${sorted[@]}"; do 
+    name=$(xdotool getwindowname ${pid});
+
+    if "$all" = true || nameInTitles ${name}
+    then
+        ((x= ( ${c} * ${xincr} ) + ${border_left} + ( ${m} * ${monitor_width}) ))
+        ((y= ( ${r} * ${yincr}) + ${border_top} ))
+        xdotool windowsize ${pid} ${width} ${height};
+        xdotool windowmove --sync ${pid} ${x} ${y};
+        xdotool windowactivate ${pid};
+        ((c = ${c} + 1))
+        if [ "$c" -ge "$columns" ]
+        then
+            c=0;
+            ((r=$r + 1))
+            if [ "$r" -ge "$rows" ]
+            then
+                r=0;
+                ((m=$m + 1))
+            fi
+        fi
+    fi
+done
