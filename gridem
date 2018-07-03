@@ -11,13 +11,16 @@
 
 #set -x
 
-usage="$(basename "$0") [-h|--help] [-c|--columns N] [-r|--rows N] [-a|--all] [--{PROFILE}={HOST}...] [HOST...]
+usage="$(basename "$0") [-h|--help] [-c|--columns N] [-r|--rows N] [-a|--all] [-t|--title NAME...]
+                        [-v|--verbose] [--{PROFILE}={HOST}...] [HOST...]
 
 where:
     -h|--help           show this help text
     -c|--columns N      arrange terminals in the given number of columns per monitor.
     -r|--rows N         arrange terminals in the given number of rows per monitor.
     -a|--all            arrange all the terminals into the grid.
+    -t|--title NAME     arrange terminals that start with the given NAME into the grid.
+    -v|--verbose        output extra information.
     --{PROFILE}={HOST}  open a new gnome-terminal using the PROFILE, ssh to HOST.
                         Multiple occurrences allowed.
     HOST                open a new gnome-terminal using default profile, ssh to HOST.
@@ -43,10 +46,13 @@ columns=${columns:-2}
 rows=${rows:-2}
 desktops=${desktops:-1}
 
-border_top=20
-border_bottom=20
-border_left=0
-border_right=0
+border_top=${border_top:-20}
+border_bottom=${border_bottom:-20}
+border_left=${border_left:-0}
+border_right=${border_right:-0}
+
+xoffset=${xoffset:-0};
+yoffset=${yoffset:-20};  # approximately the title bar height
 
 # environmental variables
 
@@ -61,6 +67,8 @@ number_of_desktops=$(xdotool get_num_desktops)
 current_desktop=$(xdotool get_desktop)
 all=false
 verbose=false
+
+window_class="gnome-terminal"
 
 # parse command line
 
@@ -115,9 +123,8 @@ set -- "${!hosts[@]}"  # restore positional parameters
 
 width="$(( ( $display_width - ( $border_left + $border_right ) ) / ( $columns * $monitors ) ))"
 height="$(( ( $display_height - ( $rows * ( $border_top + $border_bottom ) ) ) / $rows ))"
-xoffset=0;
-yoffset=20;  # approximately the title bar height
-column=0;
+((xincr=$width+$xoffset));
+((yincr=$height+$yoffset));
 
 # the hosts dictionary's keys are host names to ssh to in new windows and
 # the values are either empty string or a profile name
@@ -155,9 +162,6 @@ r=0
 c=0
 m=0
 
-((xincr=$width+$xoffset));
-((yincr=$height+$yoffset));
-
 function nameInTitles {
   local n="$1"
 
@@ -169,7 +173,7 @@ function nameInTitles {
   return 1  # false
 }
 
-declare -a pids=$(xdotool search --onlyvisible -class gnome-terminal);
+declare -a pids=$(xdotool search --onlyvisible -class ${window_class});
 IFS=$'\n' sorted=($(sort <<<"${pids[*]}"));
 unset IFS
 for pid in "${sorted[@]}"; do 
