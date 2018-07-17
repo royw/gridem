@@ -31,8 +31,7 @@ where:
 
 rcfile=$HOME/.gridemrc
 
-if [ -e ${rcfile} ]
-then
+if [ -e ${rcfile} ]; then
     source ${rcfile}
 fi
 
@@ -54,6 +53,13 @@ border_right=${border_right:-0}
 xoffset=${xoffset:-0};
 yoffset=${yoffset:-20};  # approximately the title bar height
 
+# default to gnome terminals
+window_class=${window_class:-"gnome-terminal"}
+launch_cmd_line=${launch_cmd_line:-'gnome-terminal ${profile_parameter} -- ssh ${ssh_options} ${user}@${host}.${domain}'}
+
+argument_default_profile=${argument_default_profile:-'--window'}
+argument_use_profile=${argument_use_profile:-'--window-with-profile=${profile}'}
+
 # environmental variables
 
 monitors=$(xrandr -d :0 -q | grep ' connected' | wc -l)
@@ -67,8 +73,6 @@ number_of_desktops=$(xdotool get_num_desktops)
 current_desktop=$(xdotool get_desktop)
 all=false
 verbose=false
-
-window_class="gnome-terminal"
 
 # parse command line
 
@@ -137,17 +141,14 @@ unset IFS
 for host in "${sorted[@]}"
 do
     profile=${hosts[$host]}
-    if [[ -z ${profile// } ]]
-    then
-        profile_parameter="--window"
-    else
-        profile_parameter="--window-with-profile=${profile}"
+    profile_parameter=$(eval echo ${argument_use_profile})
+    if [[ -z ${profile// } ]]; then
+        profile_parameter=$(eval echo ${argument_default_profile})
     fi
-    if [ "$verbose" = true ]
-    then
-        echo "gnome-terminal ${profile_parameter} -- ssh ${ssh_options} ${user}@${host}.${domain} "
+    if [ "$verbose" = true ]; then
+        eval echo ${launch_cmd_line}
     fi
-    $(gnome-terminal ${profile_parameter} -- ssh ${ssh_options} ${user}@${host}.${domain} )
+    eval ${launch_cmd_line}
 done
 
 # now we need to resize and reposition all of the gnome-terminal windows
@@ -179,20 +180,17 @@ unset IFS
 for pid in "${sorted[@]}"; do 
     name=$(xdotool getwindowname ${pid});
 
-    if "$all" = true || nameInTitles ${name}
-    then
+    if "$all" = true || nameInTitles ${name}; then
         ((x= ( ${c} * ${xincr} ) + ${border_left} + ( ${m} * ${monitor_width}) ))
         ((y= ( ${r} * ${yincr}) + ${border_top} ))
         xdotool windowsize ${pid} ${width} ${height};
         xdotool windowmove --sync ${pid} ${x} ${y};
         xdotool windowactivate ${pid};
         ((c = ${c} + 1))
-        if [ "$c" -ge "$columns" ]
-        then
+        if [ "$c" -ge "$columns" ]; then
             c=0;
             ((r=$r + 1))
-            if [ "$r" -ge "$rows" ]
-            then
+            if [ "$r" -ge "$rows" ]; then
                 r=0;
                 ((m=$m + 1))
             fi
