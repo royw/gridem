@@ -12,7 +12,7 @@
 #set -x
 
 usage="$(basename "$0") [-h|--help] [-c|--columns N] [-r|--rows N] [-a|--all] [-t|--title NAME...]
-                        [-v|--verbose] [--{PROFILE}={HOST}...] [HOST...]
+                        [-d|--desktop N] [-v|--verbose] [--{PROFILE}={HOST}...] [HOST...]
 
 where:
     -h|--help           show this help text
@@ -20,6 +20,7 @@ where:
     -r|--rows N         arrange terminals in the given number of rows per monitor.
     -a|--all            arrange all the terminals into the grid.
     -t|--title NAME     arrange terminals that start with the given NAME into the grid.
+    -d|--desktop N      start arranging on desktop N.
     -v|--verbose        output extra information.
     --{PROFILE}={HOST}  open a new gnome-terminal using the PROFILE, ssh to HOST.
                         Multiple occurrences allowed.
@@ -43,7 +44,6 @@ titles="${titles:-()}"
 
 columns=${columns:-2}
 rows=${rows:-2}
-desktops=${desktops:-1}
 
 border_top=${border_top:-20}
 border_bottom=${border_bottom:-20}
@@ -71,6 +71,7 @@ display_height=$(echo ${display_dimensions} | sed -r 's/.*x//')
 
 number_of_desktops=$(xdotool get_num_desktops)
 current_desktop=$(xdotool get_desktop)
+
 all=false
 verbose=false
 
@@ -105,6 +106,11 @@ case ${key} in
     shift # past argument
     shift # past value
     ;;
+    -d|--desktop)
+    (( desktop="$2" - 1 ))
+    shift # past argument
+    shift # past value
+    ;;
     -v|--verbose)
     verbose=true;
     shift # past argument
@@ -124,6 +130,7 @@ done
 set -- "${!hosts[@]}"  # restore positional parameters
 
 # calculated constants
+desktop=${desktop:-${current_desktop}}
 
 width="$(( ( $display_width - ( $border_left + $border_right ) ) / ( $columns * $monitors ) ))"
 height="$(( ( $display_height - ( $rows * ( $border_top + $border_bottom ) ) ) / $rows ))"
@@ -162,6 +169,7 @@ done
 r=0
 c=0
 m=0
+d=${desktop}
 
 function nameInTitles {
   local n="$1"
@@ -174,25 +182,43 @@ function nameInTitles {
   return 1  # false
 }
 
-declare -a pids=$(xdotool search --onlyvisible -class ${window_class});
+declare -a pids
+dt=0
+while [ ${dt} -lt ${number_of_desktops} ]; do
+    declare -a d_pids=$(xdotool search --desktop ${dt} -class ${window_class});
+    pids+=("${d_pids[@]}")
+    (( dt=dt+1 ))
+done
+
+
+#declare -a pids=$(xdotool search --onlyvisible -class ${window_class});
 IFS=$'\n' sorted=($(sort <<<"${pids[*]}"));
 unset IFS
 for pid in "${sorted[@]}"; do 
     name=$(xdotool getwindowname ${pid});
 
     if "$all" = true || nameInTitles ${name}; then
+#        echo "c: $c  r: $r  m: $m  d: $d"
         ((x= ( ${c} * ${xincr} ) + ${border_left} + ( ${m} * ${monitor_width}) ))
         ((y= ( ${r} * ${yincr}) + ${border_top} ))
+        xdotool set_desktop_for_window ${pid} ${d}
         xdotool windowsize ${pid} ${width} ${height};
         xdotool windowmove --sync ${pid} ${x} ${y};
         xdotool windowactivate ${pid};
         ((c = ${c} + 1))
-        if [ "$c" -ge "$columns" ]; then
+        if [ "${c}" -ge "${columns}" ]; then
             c=0;
             ((r=$r + 1))
-            if [ "$r" -ge "$rows" ]; then
+            if [ "${r}" -ge "${rows}" ]; then
                 r=0;
                 ((m=$m + 1))
+                if [ "${m}" -ge "${monitors}" ]; then
+                    m=0
+                    ((d=$d + 1))
+                    if [ "${d}" -ge "${number_of_desktops}" ]; then
+                        d=0
+                    fi
+                fi
             fi
         fi
     fi
