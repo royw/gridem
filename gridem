@@ -11,6 +11,46 @@
 
 #set -x
 
+# A slicker error handling routine
+
+# I put a variable in my scripts named PROGNAME which
+# holds the name of the program being run.  You can get this
+# value from the first item on the command line ($0).
+
+PROGNAME=$(basename $0)
+
+error()
+{
+
+#	----------------------------------------------------------------
+#	Function for exit due to non-fatal program error
+#		Accepts 1 argument:
+#			string containing descriptive error message
+#	----------------------------------------------------------------
+
+	echo "${PROGNAME}: ${1:-"Unknown Error"}" 1>&2
+}
+
+error_exit()
+{
+
+#	----------------------------------------------------------------
+#	Function for exit due to fatal program error
+#		Accepts 1 argument:
+#			string containing descriptive error message
+#	----------------------------------------------------------------
+
+	echo "${PROGNAME}: ${1:-"Unknown Error"}" 1>&2
+	exit 1
+}
+
+# Example call of the error_exit function.  Note the inclusion
+# of the LINENO environment variable.  It contains the current
+# line number.
+#
+# echo "Example of error with line number and message"
+# error_exit "$LINENO: An error has occurred."
+
 usage="$(basename "$0") [-h|--help] [-c|--columns N] [-r|--rows N] [-a|--all] [-t|--title NAME...]
                         [-d|--desktop N] [-v|--verbose] [--{PROFILE}={HOST}...] [HOST...]
 
@@ -35,6 +75,8 @@ rcfile=$HOME/.gridemrc
 if [ -e ${rcfile} ]; then
     source ${rcfile}
 fi
+
+#declare -a titles
 
 # variables that may be defined in the rc file:
 user="${user:-$USER}"
@@ -62,15 +104,15 @@ argument_use_profile=${argument_use_profile:-'--window-with-profile=${profile}'}
 
 # environmental variables
 
-monitors=$(xrandr -d :0 -q | grep ' connected' | wc -l)
-monitor_width=$(xrandr --current | grep '*' | uniq | awk '{print $1}' | cut -d 'x' -f1)
-monitor_height=$(xrandr --current | grep '*' | uniq | awk '{print $1}' | cut -d 'x' -f2)
-display_dimensions=$(xdpyinfo | grep dimensions | sed -r 's/^[^0-9]*([0-9]+x[0-9]+).*$/\1/')
+monitors=$(xrandr -d :0 -q | grep ' connected' | wc -l) || error_exit "${LINENO}: can not get number of monitors"
+monitor_width=$(xrandr --current | grep '*' | uniq | awk '{print $1}' | cut -d 'x' -f1) || error_exit "${LINENO}: can not get monitor width"
+monitor_height=$(xrandr --current | grep '*' | uniq | awk '{print $1}' | cut -d 'x' -f2) || error_exit "${LINENO}: can not get monitor height"
+display_dimensions=$(xdpyinfo | grep dimensions | sed -r 's/^[^0-9]*([0-9]+x[0-9]+).*$/\1/') || error_exit "${LINENO}: can not get display dimensions"
 display_width=$(echo ${display_dimensions} | sed -r 's/x.*//')
 display_height=$(echo ${display_dimensions} | sed -r 's/.*x//')
 
-number_of_desktops=$(xdotool get_num_desktops)
-current_desktop=$(xdotool get_desktop)
+number_of_desktops=$(xdotool get_num_desktops) || error_exit "${LINENO}: can not get number of desktops"
+current_desktop=$(xdotool get_desktop) || error_exit "${LINENO}: can not get the current desktop"
 
 all=false
 verbose=false
@@ -145,8 +187,7 @@ height="$(( ( $display_height - ( $rows * ( $border_top + $border_bottom ) ) ) /
 
 IFS=$'\n' sorted=($(sort <<<"${!hosts[*]}"));
 unset IFS
-for host in "${sorted[@]}"
-do
+for host in "${sorted[@]}"; do
     profile=${hosts[$host]}
     profile_parameter=$(eval echo ${argument_use_profile})
     if [[ -z ${profile// } ]]; then
@@ -155,7 +196,7 @@ do
     if [ "$verbose" = true ]; then
         eval echo ${launch_cmd_line}
     fi
-    eval ${launch_cmd_line}
+    eval ${launch_cmd_line} || error_exit "${LINENO}: can not launch command using: ${launch_cmd_line}"
 done
 
 # now we need to resize and reposition all of the gnome-terminal windows
@@ -185,38 +226,39 @@ function nameInTitles {
 declare -a pids
 dt=0
 while [ ${dt} -lt ${number_of_desktops} ]; do
-    declare -a d_pids=$(xdotool search --desktop ${dt} -class ${window_class});
+    declare -a d_pids=$(xdotool search --desktop ${dt} -class ${window_class}) || error_exit "${LINENO}: can not find open windows"
     pids+=("${d_pids[@]}")
     (( dt=dt+1 ))
 done
 
-
-#declare -a pids=$(xdotool search --onlyvisible -class ${window_class});
 IFS=$'\n' sorted=($(sort <<<"${pids[*]}"));
 unset IFS
-for pid in "${sorted[@]}"; do 
-    name=$(xdotool getwindowname ${pid});
-
-    if "$all" = true || nameInTitles ${name}; then
-#        echo "c: $c  r: $r  m: $m  d: $d"
-        ((x= ( ${c} * ${xincr} ) + ${border_left} + ( ${m} * ${monitor_width}) ))
-        ((y= ( ${r} * ${yincr}) + ${border_top} ))
-        xdotool set_desktop_for_window ${pid} ${d}
-        xdotool windowsize ${pid} ${width} ${height};
-        xdotool windowmove --sync ${pid} ${x} ${y};
-        xdotool windowactivate ${pid};
-        ((c = ${c} + 1))
-        if [ "${c}" -ge "${columns}" ]; then
-            c=0;
-            ((r=$r + 1))
-            if [ "${r}" -ge "${rows}" ]; then
-                r=0;
-                ((m=$m + 1))
-                if [ "${m}" -ge "${monitors}" ]; then
-                    m=0
-                    ((d=$d + 1))
-                    if [ "${d}" -ge "${number_of_desktops}" ]; then
-                        d=0
+for pid in "${sorted[@]}"; do
+    name=$(xdotool getwindowname ${pid})
+    if [ "$?" -ne "0" ]; then
+        error "${LINENO}: can not get window name"
+    else
+        if "$all" = true || nameInTitles ${name}; then
+    #        echo "c: $c  r: $r  m: $m  d: $d"
+            ((x= ( ${c} * ${xincr} ) + ${border_left} + ( ${m} * ${monitor_width}) ))
+            ((y= ( ${r} * ${yincr}) + ${border_top} ))
+            xdotool set_desktop_for_window ${pid} ${d} || error_exit "${LINENO}: can not set desktop for window"
+            xdotool windowsize ${pid} ${width} ${height} || error_exit "${LINENO}: can not set window size"
+            xdotool windowmove --sync ${pid} ${x} ${y} || error_exit "${LINENO}: can not move window"
+            xdotool windowactivate ${pid} || error_exit "${LINENO}: can not activate window"
+            ((c = ${c} + 1))
+            if [ "${c}" -ge "${columns}" ]; then
+                c=0;
+                ((r=$r + 1))
+                if [ "${r}" -ge "${rows}" ]; then
+                    r=0;
+                    ((m=$m + 1))
+                    if [ "${m}" -ge "${monitors}" ]; then
+                        m=0
+                        ((d=$d + 1))
+                        if [ "${d}" -ge "${number_of_desktops}" ]; then
+                            d=0
+                        fi
                     fi
                 fi
             fi
