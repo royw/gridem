@@ -2,10 +2,10 @@
 
 # Optionally open multiple gnome terminals, ssh to each.
 # Then size and position the the gnome terminals in a grid
-# (defaults 2x2).  Supports multiple monitors.
+# (defaults 2x2).  Supports multiple monitors and desktops.
 #
 # possible enhancements:
-# * support multiple desktops
+# * support multiple terminal launchings for a given profile.
 #
 # Roy
 
@@ -13,9 +13,8 @@
 
 # A slicker error handling routine
 
-# I put a variable in my scripts named PROGNAME which
-# holds the name of the program being run.  You can get this
-# value from the first item on the command line ($0).
+# The variable PROGNAME holds the name of the program being run.
+# You can get this value from the first item on the command line ($0).
 
 PROGNAME=$(basename $0)
 

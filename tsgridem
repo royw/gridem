@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+
+output=( "$(jig ${@} --pc | sort)" )
+
+arguments=""
+optA="--pcA"
+optB="--pcB"
+opt=${optA}
+
+for word in ${output}
+do
+    arguments="${arguments} ${opt}=${word}"
+    if [ "${opt}" == "${optA}" ]
+    then
+        opt=${optB}
+    else
+        opt=${optA}
+    fi
+done
+
+echo "gridem --rows 2 --columns 2 ${arguments}"
+$(gridem --rows 2 --columns 2 ${arguments})
